@@ -39,10 +39,26 @@ pct create 150 local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst \
   --net0 name=eth0,bridge=vmbr0,ip=dhcp \
   --rootfs local-lvm:8 --unprivileged 1 --start 1
 
-# Inside the LXC:
-apt-get install -y postgresql
-sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'changeme';"
-# Note the IP assigned to this LXC
+# Get a shell inside the container — two options:
+#
+# Option A: Proxmox web UI
+#   https://192.168.8.197:8006 → click LXC 150 in the tree → Console
+#
+# Option B: SSH into beast then enter the container
+#   ssh root@192.168.8.197
+#   pct enter 150
+
+apt-get update && apt-get install -y postgresql
+sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'yourpassword';"
+
+# Find the IP assigned to this LXC (you'll need it for POSTGRES_DSN)
+ip addr show eth0 | grep 'inet '
+
+exit  # back to beast
+```
+Note the IP shown — you'll use it as:
+```
+POSTGRES_DSN=postgresql://postgres:yourpassword@<LXC-IP>/postgres
 ```
 
 ### 2. Configure `.env`
@@ -63,12 +79,33 @@ pct create 151 local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst \
   --net0 name=eth0,bridge=vmbr0,ip=dhcp \
   --rootfs local-lvm:8 --unprivileged 1 --features nesting=1 --start 1
 
-# Inside the LXC:
-apt-get install -y docker.io docker-compose-plugin git
-git clone <your-repo-url> /opt/proxlab
+# Get a shell inside the container:
+#   Option A: Proxmox web UI → click LXC 151 → Console
+#   Option B: ssh root@192.168.8.197 then: pct enter 151
+
+apt-get update && apt-get install -y docker.io docker-compose-plugin git
+
+git clone https://github.com/jxwalker/proxLab.git /opt/proxlab
 cd /opt/proxlab
-cp .env.example .env  # fill in values
+cp .env.example .env
+
+# Edit .env with your actual values:
+#   PROXMOX_TOKEN_VALUE  — from the pveum token add output
+#   TRUENAS_API_KEY      — from TrueNAS UI: System > API Keys > Add
+#   POSTGRES_DSN         — postgresql://postgres:yourpassword@<postgres-LXC-IP>/postgres
+#   PROXLAB_API_TOKEN    — run: python3 -c "import secrets; print(secrets.token_hex(32))"
+nano .env
+
 docker compose up -d
+
+# Verify it started:
+docker compose ps
+curl http://localhost:8000/api/health
+
+# Find this LXC's IP (for nginx config):
+ip addr show eth0 | grep 'inet '
+
+exit  # back to beast
 ```
 
 ### 4. Configure nginx proxy on `192.168.8.220`
