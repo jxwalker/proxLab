@@ -1,0 +1,30 @@
+# Environment & secrets
+.env
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.mypy_cache/
+.ruff_cache/
+
+# Node / frontend
+web/node_modules/
+web/dist/
+web/.vite/
+
+# Docker
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

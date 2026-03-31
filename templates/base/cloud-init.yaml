@@ -1,0 +1,41 @@
+#cloud-config
+# Base template: Ubuntu 24.04 LTS
+# Installs: qemu-guest-agent, Tailscale
+# Used as the Proxmox template (VMID 9000)
+
+hostname: proxlab-base
+manage_etc_hosts: true
+
+# Update and install base packages
+package_update: true
+package_upgrade: true
+packages:
+  - qemu-guest-agent
+  - curl
+  - wget
+  - gnupg
+  - ca-certificates
+  - nfs-common        # for mounting TrueNAS NFS datasets
+  - apt-transport-https
+
+runcmd:
+  # Enable and start QEMU guest agent
+  - systemctl enable --now qemu-guest-agent
+
+  # Install Tailscale
+  - curl -fsSL https://tailscale.com/install.sh | sh
+
+  # If TAILSCALE_AUTH_KEY is set in environment/userdata, auto-join
+  # This is handled by proxlab per-VM cloud-init override
+
+  # Clean up
+  - apt-get autoremove -y
+  - apt-get clean
+
+# SSH: disable password auth, require keys
+ssh_pwauth: false
+
+# Cloud-init datasource settings
+datasource:
+  NoCloud:
+    seedfrom: /dev/sr0
