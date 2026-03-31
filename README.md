@@ -11,124 +11,187 @@ VM orchestration for your home lab — spin Proxmox VMs up/down, allocate TrueNA
 | nginx proxy | `192.168.8.220` | Reverse proxy to proxlab LXC |
 | proxlab LXC | TBD after deploy | Runs API (port 8000) + web (port 3000) |
 
-## Quick start (using proxlab itself to deploy proxlab)
+## Deployment
 
-### 1. Prerequisites on Proxmox (`beast`)
+### What you're building
 
-Create a dedicated API user and token:
+Four things need to exist before proxlab works:
+
+```
+Your dev machine
+  └── proxlab CLI (installed via pip)
+
+beast (Proxmox, 192.168.8.197)
+  ├── LXC 150  postgres    ← shared Postgres server for all provisioned VMs
+  └── LXC 151  proxlab     ← runs the API + web dashboard (docker compose)
+
+nginx (192.168.8.220)
+  └── proxlab.local → proxlab LXC (port 8000 for API, port 3000 for web)
+```
+
+---
+
+### Step 1 — On beast: create the Proxmox API token
+
+SSH into beast (`ssh root@192.168.8.197`) and run:
+
 ```bash
-# On beast, as root:
+# Create a dedicated proxlab user and API token
 pveum useradd proxlab@pve -comment "proxlab orchestration"
 pveum aclmod / -user proxlab@pve -role PVEAdmin
 pveum user token add proxlab@pve proxlab --privsep=0
-# Note the token UUID returned
+# ⚠️  Copy the token UUID shown — you won't see it again
 ```
 
-Create the Postgres LXC first (proxlab needs a DB to provision DBs):
+Also download the Ubuntu 24.04 LXC template (used for both LXCs):
+
 ```bash
-# Find and download the Ubuntu 24.04 LTS template
 pveam update
 pveam available --section system | grep ubuntu-24   # note exact filename
 pveam download local ubuntu-24.04-standard_24.04-2_amd64.tar.zst
+```
 
-# Create postgres LXC (adjust template filename to match what pveam showed)
-# --rootfs uses local-lvm (LVM thin) or local-zfs if your node uses ZFS
-# 'local' storage does not support container directories
+---
+
+### Step 2 — On beast: create LXC 150 (Postgres)
+
+Still on beast, create the Postgres container:
+
+```bash
 pct create 150 local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst \
   --hostname postgres --memory 512 --cores 1 \
   --net0 name=eth0,bridge=vmbr0,ip=dhcp \
   --rootfs local-lvm:8 --unprivileged 1 --start 1
+```
 
-# Get a shell inside the container — two options:
-#
-# Option A: Proxmox web UI
-#   https://192.168.8.197:8006 → click LXC 150 in the tree → Console
-#
-# Option B: SSH into beast then enter the container
-#   ssh root@192.168.8.197
-#   pct enter 150
+> `local-lvm` is the correct storage for container disks. `local` only holds templates and ISOs.
 
+Now enter the container shell. Two ways to do this:
+- **Proxmox web UI**: `https://192.168.8.197:8006` → click **LXC 150** in the left tree → **Console**
+- **From beast shell**: `pct enter 150`
+
+```bash
+# ---- Inside LXC 150 ----
 apt-get update && apt-get install -y postgresql
+
+# Set a password for the postgres superuser
 sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'yourpassword';"
 
-# Find the IP assigned to this LXC (you'll need it for POSTGRES_DSN)
+# Note the IP — you'll need it for .env
 ip addr show eth0 | grep 'inet '
 
 exit  # back to beast
 ```
-Note the IP shown — you'll use it as:
-```
-POSTGRES_DSN=postgresql://postgres:yourpassword@<LXC-IP>/postgres
-```
 
-### 2. Configure `.env`
+Make a note of the IP shown, e.g. `192.168.8.151`.
 
-```bash
-cp .env.example .env
-# Edit .env — fill in PROXMOX_TOKEN_VALUE, TRUENAS_API_KEY,
-# POSTGRES_DSN (using postgres LXC IP), and PROXLAB_API_TOKEN
-python3 -c "import secrets; print(secrets.token_hex(32))"  # generate PROXLAB_API_TOKEN
-```
+---
 
-### 3. Create the proxlab LXC and deploy
+### Step 3 — On beast: create LXC 151 (proxlab app)
+
+Back on beast, create the proxlab container:
 
 ```bash
-# Create proxlab LXC on beast (same Ubuntu 24.04 template)
 pct create 151 local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst \
   --hostname proxlab --memory 512 --cores 1 \
   --net0 name=eth0,bridge=vmbr0,ip=dhcp \
   --rootfs local-lvm:8 --unprivileged 1 --features nesting=1 --start 1
+```
 
-# Get a shell inside the container:
-#   Option A: Proxmox web UI → click LXC 151 → Console
-#   Option B: ssh root@192.168.8.197 then: pct enter 151
+> `nesting=1` is required for Docker to run inside an LXC.
 
+Enter the container:
+- **Proxmox web UI**: click **LXC 151** → **Console**
+- **From beast shell**: `pct enter 151`
+
+```bash
+# ---- Inside LXC 151 ----
 apt-get update && apt-get install -y docker.io docker-compose-plugin git
 
+# Clone the repo
 git clone https://github.com/jxwalker/proxLab.git /opt/proxlab
 cd /opt/proxlab
+
+# Create the .env file from the template
 cp .env.example .env
 
-# Edit .env with your actual values:
-#   PROXMOX_TOKEN_VALUE  — from the pveum token add output
-#   TRUENAS_API_KEY      — from TrueNAS UI: System > API Keys > Add
-#   POSTGRES_DSN         — postgresql://postgres:yourpassword@<postgres-LXC-IP>/postgres
-#   PROXLAB_API_TOKEN    — run: python3 -c "import secrets; print(secrets.token_hex(32))"
-nano .env
+# Generate a random API token for the proxlab API
+python3 -c "import secrets; print(secrets.token_hex(32))"
+# ← copy this output, paste it as PROXLAB_API_TOKEN below
 
+# Edit .env and fill in all values:
+nano .env
+```
+
+The values to fill in:
+
+| Variable | Where to get it |
+|---|---|
+| `PROXMOX_TOKEN_VALUE` | Output of `pveum user token add` in Step 1 |
+| `TRUENAS_API_KEY` | TrueNAS UI → System → API Keys → Add |
+| `POSTGRES_DSN` | `postgresql://postgres:yourpassword@<LXC-150-IP>/postgres` |
+| `PROXLAB_API_TOKEN` | The token you just generated above |
+
+Once `.env` is filled in, start the app:
+
+```bash
+# ---- Still inside LXC 151 ----
 docker compose up -d
 
-# Verify it started:
+# Verify both containers are running
 docker compose ps
-curl http://localhost:8000/api/health
 
-# Find this LXC's IP (for nginx config):
+# Confirm the API responds
+curl http://localhost:8000/api/health
+# Expected: {"status": "ok", "service": "proxlab-api"}
+
+# Note this LXC's IP — needed for nginx config
 ip addr show eth0 | grep 'inet '
 
 exit  # back to beast
 ```
 
-### 4. Configure nginx proxy on `192.168.8.220`
+---
+
+### Step 4 — On nginx (192.168.8.220): configure the reverse proxy
 
 ```bash
-# Copy the nginx config snippet
+# From your dev machine, copy the nginx config snippet
 scp nginx-proxlab.conf user@192.168.8.220:/etc/nginx/sites-available/proxlab
-# Edit PROXLAB_LXC_IP in the file, then:
-ln -s /etc/nginx/sites-available/proxlab /etc/nginx/sites-enabled/
+
+# SSH into 192.168.8.220 and edit the config
+ssh user@192.168.8.220
+nano /etc/nginx/sites-available/proxlab
+# Replace PROXLAB_LXC_IP with the IP from LXC 151
+
+ln -s /etc/nginx/sites-available/proxlab /etc/nginx/sites-enabled/proxlab
 nginx -t && systemctl reload nginx
+exit
 ```
 
-Add to `/etc/hosts` on your dev machine:
-```
-192.168.8.220   proxlab.local
-```
+---
 
-### 5. Configure the CLI
+### Step 5 — On your dev machine: add hosts entry and install CLI
 
 ```bash
-pip install -e cli/  # or: pipx install ./cli
-proxlab config set --url http://proxlab.local/api --token <PROXLAB_API_TOKEN>
+# Add to /etc/hosts so proxlab.local resolves
+echo "192.168.8.220   proxlab.local" | sudo tee -a /etc/hosts
+
+# Install the CLI
+pip install -e /path/to/proxlab/cli
+# or if you cloned the repo locally:
+pip install -e cli/
+
+# Point the CLI at your deployment
+proxlab config set \
+  --url http://proxlab.local/api \
+  --token <your-PROXLAB_API_TOKEN>
+
+# Test it
+proxlab vm list
 ```
+
+Web UI: open `http://proxlab.local` in your browser.
 
 ## CLI usage
 
