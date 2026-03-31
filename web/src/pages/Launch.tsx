@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
-import { flavorsApi, serversApi, ServerCreate } from '../api/client'
+import { flavorsApi, serversApi, tasksApi, ServerCreate } from '../api/client'
 
 type FormData = {
   name: string
@@ -203,7 +203,7 @@ export default function Launch() {
 function TaskPoller({ taskId, name }: { taskId: string; name: string }) {
   const { data } = useQuery({
     queryKey: ['task', taskId],
-    queryFn: () => import('../api/client').then(m => m.tasksApi.get(taskId)),
+    queryFn: () => tasksApi.get(taskId),
     refetchInterval: (q) => (q.state.data?.status === 'ok' || q.state.data?.status === 'error') ? false : 2000,
   })
   const status = data?.status ?? 'pending'
