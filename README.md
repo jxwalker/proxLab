@@ -26,11 +26,13 @@ pveum user token add proxlab@pve proxlab --privsep=0
 
 Create the Postgres LXC first (proxlab needs a DB to provision DBs):
 ```bash
-# Download Debian 12 template if needed
-pveam update && pveam download local debian-12-standard_12.7-1_amd64.tar.zst
+# Find and download the Ubuntu 24.04 LTS template
+pveam update
+pveam available --section system | grep ubuntu-24   # note exact filename
+pveam download local ubuntu-24.04-standard_24.04-2_amd64.tar.zst
 
-# Create postgres LXC
-pct create 150 local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst \
+# Create postgres LXC (adjust template filename to match what pveam showed)
+pct create 150 local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst \
   --hostname postgres --memory 512 --cores 1 \
   --net0 name=eth0,bridge=vmbr0,ip=dhcp \
   --rootfs local:8 --unprivileged 1 --start 1
@@ -53,8 +55,8 @@ python3 -c "import secrets; print(secrets.token_hex(32))"  # generate PROXLAB_AP
 ### 3. Create the proxlab LXC and deploy
 
 ```bash
-# Create proxlab LXC on beast
-pct create 151 local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst \
+# Create proxlab LXC on beast (same Ubuntu 24.04 template)
+pct create 151 local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst \
   --hostname proxlab --memory 512 --cores 1 \
   --net0 name=eth0,bridge=vmbr0,ip=dhcp \
   --rootfs local:8 --unprivileged 1 --features nesting=1 --start 1
