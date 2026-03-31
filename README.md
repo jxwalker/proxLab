@@ -32,10 +32,12 @@ pveam available --section system | grep ubuntu-24   # note exact filename
 pveam download local ubuntu-24.04-standard_24.04-2_amd64.tar.zst
 
 # Create postgres LXC (adjust template filename to match what pveam showed)
+# --rootfs uses local-lvm (LVM thin) or local-zfs if your node uses ZFS
+# 'local' storage does not support container directories
 pct create 150 local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst \
   --hostname postgres --memory 512 --cores 1 \
   --net0 name=eth0,bridge=vmbr0,ip=dhcp \
-  --rootfs local:8 --unprivileged 1 --start 1
+  --rootfs local-lvm:8 --unprivileged 1 --start 1
 
 # Inside the LXC:
 apt-get install -y postgresql
@@ -59,7 +61,7 @@ python3 -c "import secrets; print(secrets.token_hex(32))"  # generate PROXLAB_AP
 pct create 151 local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst \
   --hostname proxlab --memory 512 --cores 1 \
   --net0 name=eth0,bridge=vmbr0,ip=dhcp \
-  --rootfs local:8 --unprivileged 1 --features nesting=1 --start 1
+  --rootfs local-lvm:8 --unprivileged 1 --features nesting=1 --start 1
 
 # Inside the LXC:
 apt-get install -y docker.io docker-compose-plugin git
